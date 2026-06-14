@@ -1,48 +1,43 @@
 'use client'
 
-import { useState } from 'react'
+import { Button } from '@/components/ui/button'
 
-export function PdfExportButton({ targetId }: { targetId: string }) {
-  const [loading, setLoading] = useState(false)
-
+export function PDFExportButton() {
   async function handleExport() {
-    setLoading(true)
-    try {
-      const html2canvas = (await import('html2canvas')).default
-      const jsPDF = (await import('jspdf')).default
+    const { default: jsPDF } = await import('jspdf')
+    const { default: html2canvas } = await import('html2canvas')
 
-      const element = document.getElementById(targetId)
-      if (!element) return
+    const element = document.getElementById('diagnostico-content')
+    if (!element) return
 
-      const canvas = await html2canvas(element, {
-        scale: 1.5,
-        useCORS: true,
-        logging: false,
-      })
+    const canvas = await html2canvas(element, {
+      scale: 2,
+      useCORS: true,
+      allowTaint: true
+    })
 
-      const imgData = canvas.toDataURL('image/png')
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'px',
-        format: [canvas.width, canvas.height],
-      })
+    const imgData = canvas.toDataURL('image/png')
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    })
 
-      pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height)
-      pdf.save('diagnostico-360.pdf')
-    } catch (err) {
-      console.error('Erro ao gerar PDF:', err)
-    } finally {
-      setLoading(false)
-    }
+    const pdfWidth = pdf.internal.pageSize.getWidth()
+    const pdfHeight = pdf.internal.pageSize.getHeight()
+    const imgWidth = canvas.width
+    const imgHeight = canvas.height
+    const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight)
+    const imgX = (pdfWidth - imgWidth * ratio) / 2
+    const imgY = 0
+
+    pdf.addImage(imgData, 'PNG', imgX, imgY, imgWidth * ratio, imgHeight * ratio)
+    pdf.save('diagnostico-360.pdf')
   }
 
   return (
-    <button
-      onClick={handleExport}
-      disabled={loading}
-      className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:border-gray-500 hover:text-gray-900 transition-colors disabled:opacity-50"
-    >
-      {loading ? 'Gerando PDF...' : '↓ Exportar PDF'}
-    </button>
+    <Button onClick={handleExport} variant="outline">
+      Exportar PDF
+    </Button>
   )
 }

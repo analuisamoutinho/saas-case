@@ -1,171 +1,152 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
-import { useRouter, useParams } from 'next/navigation'
-import Link from 'next/link'
+import { useEffect, useState, use } from 'react'
+import { useRouter } from 'next/navigation'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Progress } from '@/components/ui/progress'
+import { Badge } from '@/components/ui/badge'
 
-type StatusData = {
+interface ClienteStatus {
   id: string
-  nome: string
   status: string
   progresso: string | null
+  perfil_negocio: Record<string, unknown> | null
+  dna: Record<string, unknown> | null
+  scores: Record<string, unknown> | null
+  gargalo: Record<string, unknown> | null
 }
 
-const stepLabels = [
-  'Iniciando Agente DNA...',
-  'Agente DNA concluído. Iniciando Score de Maturidade...',
-  'Score de Maturidade concluído. Identificando gargalo principal...',
-  'Radar de Gargalos concluído. Gerando Playbook de 90 dias...',
-  'Diagnóstico 360° concluído!',
-]
-
-function getProgressPercent(progresso: string | null): number {
-  if (!progresso) return 0
-  const idx = stepLabels.findIndex((s) => progresso.includes(s.split('.')[0]))
-  if (idx === -1) return 10
-  return Math.round(((idx + 1) / stepLabels.length) * 100)
-}
-
-export default function ClientePage() {
-  const params = useParams()
+export default function ClientePage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter()
-  const id = params.id as string
+  const { id } = use(params)
+  const [cliente, setCliente] = useState<ClienteStatus | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [progress, setProgress] = useState(0)
+  const [isPolling, setIsPolling] = useState(false)
 
-  const [data, setData] = useState<StatusData | null>(null)
-  const [generating, setGenerating] = useState(false)
-  const [error, setError] = useState('')
+  useEffect(() => {
+    const fetchStatus = async () => {
+      try {
+        const res = await fetch(`/api/clientes/${id}/status`)
+        if (res.ok) {
+          const data = await res.json()
+          setCliente(data)
 
-  const fetchStatus = useCallback(async () => {
-    const res = await fetch(`/api/clientes/${id}/status`)
-    if (!res.ok) return
-    const json = await res.json()
-    setData(json)
-    if (json.status === 'concluido') {
-      router.push(`/clientes/${id}/diagnostico`)
+          if (data.status === 'concluido') {
+            router.push(`/clientes/${id}/diagnostico`)
+          }
+
+          return data.status
+        }
+      } catch {
+        return null
+      }
     }
+
+    fetchStatus()
   }, [id, router])
 
   useEffect(() => {
-    fetchStatus()
-  }, [fetchStatus])
+    if (!cliente) return
+    if (cliente.status !== 'processando') {
+      setIsPolling(false)
+      return
+    }
 
-  useEffect(() => {
-    if (!data) return
-    if (data.status !== 'processando') return
-    const interval = setInterval(fetchStatus, 3000)
+    setIsPolling(true)
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/clientes/${id}/status`)
+        if (res.ok) {
+          const data = await res.json()
+          setCliente(data)
+          setProgress(p => Math.min(p + 5, 90))
+
+          if (data.status === 'concluido') {
+            clearInterval(interval)
+            router.push(`/clientes/${id}/diagnostico`)
+          } else if (data.status === 'erro') {
+            clearInterval(interval)
+          }
+        }
+      } catch {}
+    }, 2000)
+
     return () => clearInterval(interval)
-  }, [data, fetchStatus])
+  }, [id, cliente?.status, router, isPolling])
 
-  async function handleGerar() {
-    setGenerating(true)
-    setError('')
+  async function handleGenerate() {
+    setLoading(true)
     try {
       await fetch(`/api/clientes/${id}/gerar`, { method: 'POST' })
-      // Start polling
-      setData((prev) => prev ? { ...prev, status: 'processando', progresso: 'Iniciando Agente DNA...' } : prev)
-    } catch {
-      setError('Erro ao iniciar diagnóstico. Tente novamente.')
-      setGenerating(false)
+      setCliente(prev => prev ? { ...prev, status: 'processando', progresso: 'Iniciando...' } : null)
+      setProgress(10)
+    } finally {
+      setLoading(false)
     }
   }
 
-  if (!data) {
+  if (!cliente) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-gray-400 text-sm">Carregando...</div>
-      </div>
+      <main className="container mx-auto p-8">
+        <Card><CardContent className="p-12 text-center">Carregando...</CardContent></Card>
+      </main>
     )
   }
 
-  const progress = getProgressPercent(data.progresso)
-
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200">
-        <div className="max-w-3xl mx-auto px-6 py-4 flex items-center gap-3">
-          <Link href="/" className="text-gray-400 hover:text-gray-600 text-sm">
-            ← Clientes
-          </Link>
-          <span className="text-gray-300">/</span>
-          <span className="text-sm font-medium text-gray-700">{data.nome}</span>
-        </div>
-      </header>
+    <main className="container mx-auto p-8 max-w-2xl">
+      <div className="flex items-center gap-4 mb-8">
+        <Button variant="outline" onClick={() => router.push('/')}>&#8592; Voltar</Button>
+        <h1 className="text-3xl font-bold">Diagnóstico</h1>
+        <Badge>{cliente.status}</Badge>
+      </div>
 
-      <main className="max-w-3xl mx-auto px-6 py-12">
-        <div className="text-center">
-          <div className="w-16 h-16 rounded-full bg-gray-900 text-white flex items-center justify-center font-bold text-2xl mx-auto mb-4">
-            {data.nome.charAt(0).toUpperCase()}
-          </div>
-          <h1 className="text-2xl font-bold text-gray-900 mb-1">{data.nome}</h1>
+      {cliente.status === 'novo' && (
+        <Card>
+          <CardHeader><CardTitle>Gerar Diagnóstico 360°</CardTitle></CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-muted-foreground">
+              Os 4 agentes de IA irão analisar as informações do cliente e gerar um diagnóstico completo com DNA, scores de maturidade, gargalo principal e playbook de 90 dias.
+            </p>
+            <Button onClick={handleGenerate} disabled={loading} size="lg" className="w-full">
+              {loading ? 'Iniciando...' : 'Gerar Diagnóstico 360°'}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
-          {data.status === 'novo' && (
-            <div className="mt-8">
-              <p className="text-gray-500 mb-6">
-                Transcrição salva. Clique abaixo para iniciar o Diagnóstico 360° com os 4 agentes de IA.
-              </p>
-              <div className="bg-white border border-gray-200 rounded-xl p-6 text-left mb-6 max-w-md mx-auto">
-                <p className="text-sm font-medium text-gray-700 mb-3">O sistema vai executar:</p>
-                <div className="space-y-2">
-                  {['🧬 Agente DNA — perfil + voz do cliente', '📊 Agente Score — maturidade em 6 áreas', '🎯 Agente Radar — gargalo principal', '📋 Agente Playbook — plano de 90 dias'].map((step) => (
-                    <div key={step} className="flex items-center gap-2 text-sm text-gray-600">
-                      <span>{step}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              {error && (
-                <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700 mb-4 max-w-md mx-auto">
-                  {error}
-                </div>
-              )}
-              <button
-                onClick={handleGerar}
-                disabled={generating}
-                className="bg-black text-white px-8 py-3 rounded-lg font-medium hover:bg-gray-800 transition-colors disabled:opacity-50"
-              >
-                {generating ? 'Iniciando...' : 'Gerar Diagnóstico 360° →'}
-              </button>
-            </div>
-          )}
-
-          {data.status === 'processando' && (
-            <div className="mt-8 max-w-md mx-auto">
-              <div className="bg-white border border-gray-200 rounded-xl p-6">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-3 h-3 rounded-full bg-blue-500 animate-pulse" />
-                  <span className="text-sm font-medium text-blue-700">Processando diagnóstico...</span>
-                </div>
-                <div className="w-full bg-gray-100 rounded-full h-2 mb-3">
-                  <div
-                    className="bg-black h-2 rounded-full transition-all duration-500"
-                    style={{ width: `${progress}%` }}
-                  />
-                </div>
-                <p className="text-xs text-gray-500">{data.progresso || 'Iniciando...'}</p>
-              </div>
-              <p className="text-xs text-gray-400 mt-3">
-                Esta etapa pode levar 1-2 minutos. A página atualiza automaticamente.
+      {cliente.status === 'processando' && (
+        <Card>
+          <CardHeader><CardTitle>Gerando Diagnóstico...</CardTitle></CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-2">
+              <Progress value={progress} className="h-3" />
+              <p className="text-sm text-muted-foreground text-center animate-pulse">
+                {cliente.progresso || 'Processando...'}
               </p>
             </div>
-          )}
-
-          {data.status === 'erro' && (
-            <div className="mt-8 max-w-md mx-auto">
-              <div className="bg-red-50 border border-red-200 rounded-xl p-6">
-                <p className="text-sm font-medium text-red-700 mb-2">Erro no processamento</p>
-                <p className="text-xs text-red-600">{data.progresso}</p>
-              </div>
-              <button
-                onClick={handleGerar}
-                disabled={generating}
-                className="mt-4 bg-black text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors"
-              >
-                Tentar novamente
-              </button>
+            <div className="grid grid-cols-4 gap-2 mt-4">
+              {['Agente DNA', 'Score', 'Radar', 'Playbook'].map((agent, i) => (
+                <div key={agent} className={`text-center p-3 rounded-lg text-xs font-medium ${progress > i * 25 ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
+                  {agent}
+                </div>
+              ))}
             </div>
-          )}
-        </div>
-      </main>
-    </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {cliente.status === 'erro' && (
+        <Card className="border-destructive">
+          <CardHeader><CardTitle className="text-destructive">Erro no Diagnóstico</CardTitle></CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-muted-foreground">{cliente.progresso}</p>
+            <Button onClick={handleGenerate} variant="outline">Tentar Novamente</Button>
+          </CardContent>
+        </Card>
+      )}
+    </main>
   )
 }
